@@ -1,0 +1,20 @@
+{
+  // tag:claude = Claude Code cloud sessions; tag:server = devices Claude may manage
+  "tagOwners": {
+    "tag:claude": ["autogroup:admin"],
+    "tag:server": ["autogroup:admin"]
+  },
+  "grants": [
+    // your own devices: unchanged, full access to everything
+    {"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+    // servers can still talk to each other
+    {"src": ["tag:server"], "dst": ["tag:server"], "ip": ["*"]},
+    // Claude cloud sessions: only tagged servers
+    {"src": ["tag:claude"], "dst": ["tag:server"], "ip": ["*"]}
+  ],
+  "ssh": [
+    {"src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot", "root"], "action": "accept"},
+    {"src": ["autogroup:member"], "dst": ["tag:server"], "users": ["autogroup:nonroot", "root"], "action": "accept"},
+    {"src": ["tag:claude"], "dst": ["tag:server"], "users": ["autogroup:nonroot", "root"], "action": "accept"}
+  ]
+}

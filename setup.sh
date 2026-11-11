@@ -1,5 +1,9 @@
 # === Claude cloud session -> your Tailscale devices (generic, no account-specific values) ===
-# Per-user config: env var TAILSCALE_AUTHKEY (optional; reusable+ephemeral key of YOUR tailnet).
+# Login, first match wins:
+#   1. Tailscale API token saved as a network secret for api.tailscale.com (recommended):
+#      ts-up mints a one-time, 10-minute, ephemeral key tagged $TS_TAG (default tag:claude).
+#   2. env var TAILSCALE_AUTHKEY (reusable + ephemeral auth key of YOUR tailnet).
+#   3. a login URL for the user to approve.
 if ! command -v tailscaled >/dev/null; then
   V=$(curl -fsSL https://pkgs.tailscale.com/stable/ | grep -o 'tailscale_[0-9.]*_amd64.tgz' | head -1)
   curl -fsSL "https://pkgs.tailscale.com/stable/$V" | tar xz -C /tmp && cp /tmp/tailscale_*_amd64/tailscale* /usr/local/bin/ || true
@@ -9,7 +13,12 @@ cat > /usr/local/bin/ts-up <<'EOF'
 #!/bin/bash
 # Join this container to your tailnet (userspace mode) and write SSH aliases. Safe to re-run.
 L=/var/lib/tailscale; mkdir -p $L /var/run/tailscale /root/.ssh/config.d
-K="$TAILSCALE_AUTHKEY"; H="${TS_HOSTNAME:-claude-cloud}"
+H="${TS_HOSTNAME:-claude-cloud}"; T="${TS_TAG:-tag:claude}"
+mint() {  # one-time tagged key from the Tailscale API; the proxy adds the saved token
+  curl -fsS -X POST https://api.tailscale.com/api/v2/tailnet/-/keys -H 'Content-Type: application/json' \
+    -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":true,\"preauthorized\":true,\"tags\":[\"$T\"]}}},\"expirySeconds\":600,\"description\":\"ts-up\"}" \
+    2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])' 2>/dev/null
+}
 start() {
   pkill -x tailscaled; sleep 1; echo "$HTTPS_PROXY" > $L/proxy
   setsid nohup tailscaled --tun=userspace-networking --state=$L/tailscaled.state >>$L/tailscaled.log 2>&1 </dev/null &
@@ -20,9 +29,12 @@ online() {  # self is Running and not marked offline (ephemeral nodes get delete
   return 1
 }
 if ! pgrep -x tailscaled >/dev/null || [ "$(cat $L/proxy 2>/dev/null)" != "$HTTPS_PROXY" ]; then start; fi
-if ! online && [ -n "$K" ]; then
-  tailscale logout >/dev/null 2>&1; pkill -x tailscaled; rm -f $L/tailscaled.state; start
-  tailscale up --hostname="$H" --auth-key="$K" --timeout=30s
+if ! online; then
+  K=$(mint); [ -n "$K" ] && echo "Using a one-time $T key from the Tailscale API" || K="$TAILSCALE_AUTHKEY"
+  if [ -n "$K" ]; then
+    tailscale logout >/dev/null 2>&1; pkill -x tailscaled; rm -f $L/tailscaled.state; start
+    tailscale up --hostname="$H" --auth-key="$K" --timeout=30s
+  fi
 fi
 if ! online; then
   tailscale up --hostname="$H" --force-reauth --timeout=15s
@@ -58,4 +70,11 @@ cat > /root/.claude/CLAUDE.md <<'EOF'
   `ssh <user>@100.x.y.z` also works. Plain outbound TCP does not work here; always go through Tailscale.
 - If `ts-up` prints a login URL, give it to the user, wait for approval, then run `ts-up` again.
 - If ssh fails after the session was idle or resumed, run `ts-up` again first.
+## Managing the tailnet (only if a Tailscale API token is saved for api.tailscale.com)
+- The user's model: on a new device they only install Tailscale and run `tailscale up --ssh`; Claude does the rest.
+- New device: find it with `curl -s https://api.tailscale.com/api/v2/tailnet/-/devices`, then
+  `POST /api/v2/device/<id>/tags {"tags":["tag:server"]}` and `POST /api/v2/device/<id>/key {"keyExpiryDisabled":true}`,
+  then run `ts-up` again to refresh SSH aliases. Sessions (tag:claude) can only reach tag:server devices.
+- ACL changes: GET /api/v2/tailnet/-/acl (note the ETag), POST .../acl/validate, show the user the change and get
+  their OK, then POST .../acl with If-Match. Never weaken access for the user's own devices.
 EOF
