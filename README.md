@@ -41,7 +41,7 @@ Tailscale 后台 → Settings → Keys → **Generate access token**。
 - **Setup script**：加入下面这一行（固定到具体提交，仓库以后的改动不会自动影响你；想升级时换成新的提交号）：
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/4b9928c0234d28018b5127d32ce5af2bd55fccae/setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/23c02db587809f6d9fa65bd9a9fbfa0a0682cfbf/setup.sh | bash
   ```
 
   也可以把 [`setup.sh`](setup.sh) 的全部内容直接粘贴进去，这样就不依赖这个仓库。

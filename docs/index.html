@@ -172,7 +172,7 @@ tailscale up --ssh</pre><button class="copy" type="button">复制</button></div>
         <div class="step-body">
           <div class="where">claude.ai/code → 会话标题栏的环境菜单 → Edit</div>
           <p><b>Setup script</b>：加入下面这一行。它固定到仓库里的一个具体提交，以后仓库改动不会自动影响你的环境。</p>
-          <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/4b9928c0234d28018b5127d32ce5af2bd55fccae/setup.sh | bash</pre><button class="copy" type="button">复制</button></div>
+          <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/23c02db587809f6d9fa65bd9a9fbfa0a0682cfbf/setup.sh | bash</pre><button class="copy" type="button">复制</button></div>
           <p><b>Network secrets</b>：添加一条，Host 填 <code>api.tailscale.com</code>，用 <code>Authorization: Bearer</code>，值填上一步的令牌。也可以直接在会话里跟 Claude 说“帮我保存 Tailscale API 令牌”，它会弹出安全表单。令牌由网络代理注入请求，Claude 和脚本都看不到它的值。</p>
         </div>
       </li>
@@ -246,7 +246,7 @@ if ! command -v tailscaled &gt;/dev/null; then
   V=$(curl -fsSL https://pkgs.tailscale.com/stable/ | grep -o 'tailscale_[0-9.]*_amd64.tgz' | head -1)
   curl -fsSL "https://pkgs.tailscale.com/stable/$V" | tar xz -C /tmp &amp;&amp; cp /tmp/tailscale_*_amd64/tailscale* /usr/local/bin/ || true
 fi
-command -v ssh &gt;/dev/null || apt-get install -y -qq openssh-client || true
+command -v ssh &gt;/dev/null || { apt-get update -qq &amp;&amp; apt-get install -y -qq openssh-client; } &gt;/dev/null 2&gt;&amp;1 || true
 cat &gt; /usr/local/bin/ts-up &lt;&lt;'EOF'
 #!/bin/bash
 # Join this container to your tailnet (userspace mode) and write SSH aliases. Safe to re-run.
