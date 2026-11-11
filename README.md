@@ -10,19 +10,9 @@ Claude Code 的云端会话（claude.ai/code）只能访问 HTTPS 网站，不�
 
 流量由 WireGuard 端到端加密，中继服务器看不到内容。
 
-## 哪些是现成的，哪些要你自己做
+## 分工
 
-| 部分 | 谁来做 |
-|---|---|
-| `setup.sh`：安装 Tailscale 和 ssh，生成 `ts-up`、SSH 配置和给 Claude 的使用说明 | 直接用 |
-| `ts-up`：启动、自动登录、设备过期后自动重连、按设备名生成 SSH 别名 | 脚本自带 |
-| Tailscale 账号，要连的设备上都装好 Tailscale 并开启 `--ssh` | 你 |
-| ACL 里 SSH 规则改成 `accept` | 你 |
-| 授权密钥 `TAILSCALE_AUTHKEY`（可选） | 你 |
-
-## 安装
-
-### 1. 在要连的设备上开启 Tailscale SSH
+**每台要连的设备上，你只做一件事**：安装 Tailscale 并登录。
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -32,75 +22,75 @@ curl -fsSL https://tailscale.com/install.sh | sh
 tailscale up --ssh
 ```
 
-### 2. SSH 规则改成免确认
+**其余都交给 Claude**（通过 Tailscale API）：
 
-Tailscale SSH 默认是 `check` 模式，每台新设备都要在浏览器里确认一次。云端会话每次都是新设备，所以要改成 `accept`。
+- 写好 ACL：云端会话（`tag:claude`）只能访问你指定的设备（`tag:server`），你自己设备的权限不变
+- 给新设备打 `tag:server`，关闭它的密钥过期
+- 每个新会话自动用 API 生成一次性、10 分钟有效、带 `tag:claude` 的密钥加入网络，环境里不存长期密钥
 
-- **简单版**：在 Tailscale 后台 → Access controls，把默认 SSH 规则的 `"action": "check"` 改成 `"accept"`。
-- **安全版（推荐）**：给云端会话和目标设备分别打 tag，只放行需要的设备：
+## 一次性配置（约 5 分钟）
 
-```json
-"tagOwners": {
-  "tag:claude": ["autogroup:admin"],
-  "tag:server": ["autogroup:admin"]
-},
-"grants": [
-  {"src": ["tag:claude"], "dst": ["tag:server"], "ip": ["tcp:22"]}
-],
-"ssh": [
-  {"action": "accept", "src": ["tag:claude"], "dst": ["tag:server"], "users": ["root"]}
-]
-```
+### 1. 生成 Tailscale API 令牌
 
-然后在目标设备上运行：
+Tailscale 后台 → Settings → Keys → **Generate access token**。
 
-```bash
-tailscale up --ssh --advertise-tags=tag:server
-```
-
-### 3. 生成授权密钥（可选，推荐）
-
-在 Tailscale 后台 → Settings → Keys 里生成，勾选 **Reusable** 和 **Ephemeral**；如果用了安全版规则，Tags 选 `tag:claude`。
-不填密钥也能用：每个新会话会给出一个登录链接，点一下批准即可。
-
-### 4. 配置云端环境
+### 2. 配置云端环境
 
 在 claude.ai/code 会话标题栏的环境菜单 → Edit：
 
-- **Setup script**：加入下面这一行。它固定到一个具体提交，仓库以后的改动不会自动影响你的环境；想升级时，换成新的提交号即可：
+- **Setup script**：加入下面这一行（固定到具体提交，仓库以后的改动不会自动影响你；想升级时换成新的提交号）：
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/617fe151de43649e5d32a69dfe967e9e32c023c1/setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/4b9928c0234d28018b5127d32ce5af2bd55fccae/setup.sh | bash
   ```
 
   也可以把 [`setup.sh`](setup.sh) 的全部内容直接粘贴进去，这样就不依赖这个仓库。
-- **Environment variables**：添加 `TAILSCALE_AUTHKEY=tskey-auth-…`
-- **Network access**：保持默认即可
+- **Network secrets**：添加一条，Host 填 `api.tailscale.com`，Header 用 `Authorization: Bearer`，值填第 1 步的令牌。
+  也可以直接在会话里跟 Claude 说“帮我保存 Tailscale API 令牌”，它会弹出安全表单。
+  令牌由网络代理注入请求，Claude 和脚本都看不到它的值。
 
-### 5. 新开一个会话，直接用
+### 3. 新开一个会话，让 Claude 完成剩下的设置
 
-> 你：连一下我的服务器，看看磁盘和内存还剩多少
+> 你：按 claude-tailscale 的说明，帮我配置 Tailscale：写入 acl.hujson 里的规则，把 my-server 设为 tag:server
+
+Claude 会先读取现有 ACL，校验新规则，给你看改动并等你确认，然后提交。规则模板见 [`acl.hujson`](acl.hujson)。
+
+## 日常使用
+
+> 你：连一下 my-server，看看磁盘和内存还剩多少
 >
-> Claude：运行 `ts-up` → `ssh 设备名 'df -h; free -h'` → 汇报结果
+> Claude：运行 `ts-up` → `ssh my-server 'df -h; free -h'` → 汇报结果
 
-第一次运行 `ts-up` 时，Claude 的自动权限检查可能会拦一下，因为它会让容器加入你的网络。回复“确认”即可。
+> 你：我在新服务器上装好 Tailscale 了，叫 web-2
+>
+> Claude：通过 API 给 web-2 打上 `tag:server`、关闭密钥过期 → 重新运行 `ts-up` → 可以连了
+
+第一次运行 `ts-up`、第一次修改 ACL 时，Claude 的自动权限检查可能会拦一下，回复确认即可。
+
+## 不想用 API 令牌？
+
+也可以不保存 API 令牌，按以下任一方式：
+
+- 在 Tailscale 后台自己生成一个 Reusable + Ephemeral、带 `tag:claude` 的授权密钥，放进环境变量 `TAILSCALE_AUTHKEY`；ACL 和设备 tag 也在后台自己改。
+- 什么都不配：每个新会话会给出一个登录链接，点一下批准即可。
 
 ## 安全须知
 
-- 云端会话加入后，等于你网络里多了一台设备，ACL 放行哪些设备它就能访问哪些。建议用安全版规则。
-- 环境变量是明文保存的。密钥一定要选 Ephemeral，有 tag 更好；泄露了就在 Tailscale 后台作废。
+- **API 令牌拥有你 Tailscale 网络的完整管理权限**。它保存在你的云端环境里，该环境的每个会话都能用它调用 API。
+  生成时有效期选短一些，到期再换；不用了就在环境设置里删掉，并在 Tailscale 后台作废。
+- 云端会话只带 `tag:claude`，按 `acl.hujson` 只能访问 `tag:server` 设备，碰不到你的个人电脑。
 - 不要把服务器密码发在聊天里或写进脚本。用了 Tailscale SSH 就不需要密码了。
 - 脚本只从 `pkgs.tailscale.com` 下载 Tailscale 官方的最新稳定版。
 
 ## 常见问题
 
-**`ts-up` 输出了登录链接**：没有设置密钥，或者密钥失效了。打开链接批准，再运行一次 `ts-up`。
+**`ts-up` 输出了登录链接**：API 令牌没配好或已过期，也没有 `TAILSCALE_AUTHKEY`。打开链接批准，再运行一次 `ts-up`。
 
-**提示 "Tailscale SSH requires an additional check"**：第 2 步的规则还是 `check`。
+**提示 "Tailscale SSH requires an additional check"**：ACL 里对应的 SSH 规则还是 `check`，改成 `accept`。
 
-**会话闲置后连不上了**：Ephemeral 设备闲置后会被自动删除。再运行一次 `ts-up`，它会用密钥重新加入。
+**连不上某台设备**：它可能还没有 `tag:server`，或者登录时没加 `--ssh`。让 Claude 查一下。
 
-**设备名是什么**：Tailscale 后台里显示的机器名（小写）。`ssh 用户名@100.x.y.z` 也可以。
+**Windows 设备**：Tailscale SSH 服务端只支持 Linux（以及开源版 macOS tailscaled），Windows 需要另外开 OpenSSH Server。
 
 ---
 
