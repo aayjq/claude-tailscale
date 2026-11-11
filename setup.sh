@@ -8,7 +8,7 @@ if ! command -v tailscaled >/dev/null; then
   V=$(curl -fsSL https://pkgs.tailscale.com/stable/ | grep -o 'tailscale_[0-9.]*_amd64.tgz' | head -1)
   curl -fsSL "https://pkgs.tailscale.com/stable/$V" | tar xz -C /tmp && cp /tmp/tailscale_*_amd64/tailscale* /usr/local/bin/ || true
 fi
-command -v ssh >/dev/null || apt-get install -y -qq openssh-client || true
+command -v ssh >/dev/null || { apt-get update -qq && apt-get install -y -qq openssh-client; } >/dev/null 2>&1 || true
 cat > /usr/local/bin/ts-up <<'EOF'
 #!/bin/bash
 # Join this container to your tailnet (userspace mode) and write SSH aliases. Safe to re-run.
