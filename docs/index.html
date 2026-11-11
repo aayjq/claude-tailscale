@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ts-up 安装手册</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>*,*::before,*::after{box-sizing:border-box}body{margin:0}</style>
+<style>
+/* Layout: single reading column, steps as a numbered rail, code blocks full-bleed within the column */
+:root {
+  --bg: #f5f7f8;
+  --surface: #ffffff;
+  --fg: #16201f;
+  --muted: #5b6a68;
+  --line: #d9e1e0;
+  --accent: #0f766e;
+  --accent-soft: #e2f1ef;
+  --code-bg: #10191a;
+  --code-fg: #d7e6e3;
+  --warn: #9a5b00;
+  --warn-soft: #fbf1e1;
+  --f-display: "Space Grotesk", "Noto Sans SC", system-ui, sans-serif;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0d1314; --surface: #141c1d; --fg: #e3ecea; --muted: #93a5a2; --line: #26332f;
+  --accent: #5ec8bb; --accent-soft: #15302d; --code-bg: #091011; --code-fg: #cfe0dc;
+  --warn: #f0b45a; --warn-soft: #2b2112; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0d1314; --surface: #141c1d; --fg: #e3ecea; --muted: #93a5a2; --line: #26332f;
+  --accent: #5ec8bb; --accent-soft: #15302d; --code-bg: #091011; --code-fg: #cfe0dc;
+  --warn: #f0b45a; --warn-soft: #2b2112; color-scheme: dark; }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 16px; line-height: 1.75; }
+.wrap { max-width: 760px; margin: 0 auto; padding-block: 48px 80px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 44px; }
+h1, h2, h3 { font-family: var(--f-display); line-height: 1.25; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 6vw, 2.75rem); letter-spacing: -0.01em; }
+h1 code { font-family: var(--f-mono); color: var(--accent); font-size: 0.92em; }
+h2 { font-size: 1.45rem; }
+h3 { font-size: 1.05rem; }
+p { margin: 0; }
+section { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.lede { font-size: 1.08rem; color: var(--muted); max-width: 62ch; }
+.eyebrow { font-family: var(--f-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+a { color: var(--accent); }
+code { font-family: var(--f-mono); font-size: 0.88em; background: var(--accent-soft); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+
+/* path diagram */
+.path { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.hop { flex: 1 1 140px; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 12px 14px; }
+.hop b { display: block; font-family: var(--f-display); font-size: 0.98rem; }
+.hop span { font-size: 0.85rem; color: var(--muted); line-height: 1.5; display: block; }
+.arrow { align-self: center; color: var(--muted); font-family: var(--f-mono); }
+@media (max-width: 560px) { .arrow { display: none; } .hop { flex-basis: 100%; } }
+
+/* split table */
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.93rem; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--f-display); font-weight: 500; color: var(--muted); font-size: 0.82rem; letter-spacing: 0.04em; }
+.tag { display: inline-block; font-size: 0.75rem; font-weight: 500; padding: 1px 8px; border-radius: 99px; white-space: nowrap; }
+.tag.same { background: var(--accent-soft); color: var(--accent); }
+.tag.you { background: var(--warn-soft); color: var(--warn); }
+
+/* steps */
+ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; display: flex; flex-direction: column; gap: 28px; }
+ol.steps > li { counter-increment: s; display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 4px 14px; }
+ol.steps > li::before { content: counter(s); grid-row: span 2; width: 30px; height: 30px; border-radius: 50%;
+  border: 1.5px solid var(--accent); color: var(--accent); font-family: var(--f-display); font-weight: 700;
+  display: grid; place-items: center; font-size: 0.95rem; margin-top: 1px; }
+.step-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.where { font-size: 0.82rem; color: var(--muted); font-family: var(--f-mono); }
+ul.tight { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+
+/* code */
+.code { position: relative; min-width: 0; }
+.code pre { margin: 0; background: var(--code-bg); color: var(--code-fg); border-radius: 8px; padding: 14px 16px;
+  overflow-x: auto; font-family: var(--f-mono); font-size: 0.82rem; line-height: 1.6; }
+.code.tall pre { max-height: 420px; overflow: auto; }
+.copy { position: absolute; top: 8px; right: 8px; font: 500 0.75rem var(--f-body); color: var(--code-fg);
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.18); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+.copy:hover { background: rgba(255,255,255,0.16); }
+.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.note { border: 1px solid var(--line); border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 12px 16px; font-size: 0.93rem; }
+.note b { color: var(--warn); }
+.say { border: 1px dashed var(--line); border-radius: 8px; padding: 12px 16px; background: var(--surface); font-size: 0.95rem; }
+.say div + div { margin-top: 6px; }
+.say .who { font-family: var(--f-mono); font-size: 0.78rem; color: var(--muted); margin-right: 8px; }
+dl.faq { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+dl.faq dt { font-weight: 700; }
+dl.faq dd { margin: 4px 0 0; color: var(--muted); }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<style>
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.role { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.role h3 { display: flex; align-items: center; gap: 8px; }
+.role.you { border-top: 3px solid var(--warn); }
+.role.claude { border-top: 3px solid var(--accent); }
+details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 12px 16px; }
+details > summary { cursor: pointer; font-weight: 700; font-family: var(--f-display); }
+details[open] > summary { margin-bottom: 12px; }
+details > .code + p, details > p + .code { margin-top: 10px; }
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:14px">
+    <div class="eyebrow">Claude Code 云端会话 · Tailscale</div>
+    <h1>用 <code>ts-up</code> 让云端 Claude 连上你自己的设备</h1>
+    <p class="lede">Claude Code 的云端会话只能访问 HTTPS 网站，不能直接 SSH 到你的服务器。装上这个脚本后，云端会话会通过 Tailscale 加入你的私有网络，像本地一样 <code>ssh 设备名</code> 执行命令。每台设备上你只需要装好 Tailscale 并登录，规则、tag、密钥这些都由 Claude 通过 Tailscale API 来管。</p>
+  </header>
+
+  <section>
+    <h2>它是怎么连通的</h2>
+    <div class="path" aria-label="连接路径">
+      <div class="hop"><b>云端会话</b><span>容器里运行 tailscaled（用户态模式），带 <code>tag:claude</code></span></div>
+      <div class="arrow">→</div>
+      <div class="hop"><b>HTTPS 出口</b><span>云端环境默认允许的 443 端口</span></div>
+      <div class="arrow">→</div>
+      <div class="hop"><b>Tailscale 中继</b><span>DERP 中继转发加密流量（UDP 不通时自动使用）</span></div>
+      <div class="arrow">→</div>
+      <div class="hop"><b>你的设备</b><span>带 <code>tag:server</code>，开了 Tailscale SSH</span></div>
+    </div>
+    <p style="color:var(--muted);font-size:0.93rem">流量全程由 WireGuard 端到端加密，中继服务器看不到内容。走中继比直连慢一点，跑命令、传文件、部署都够用。</p>
+  </section>
+
+  <section>
+    <h2>分工</h2>
+    <div class="split">
+      <div class="role you">
+        <h3><span class="tag you">你</span>每台要连的设备上</h3>
+        <p>装好 Tailscale 并登录，就这一件事：</p>
+        <div class="code"><pre>curl -fsSL https://tailscale.com/install.sh | sh
+tailscale up --ssh</pre><button class="copy" type="button">复制</button></div>
+        <p style="font-size:0.9rem;color:var(--muted)"><code>--ssh</code> 只能在设备本机开启，所以这一步要你自己做。</p>
+      </div>
+      <div class="role claude">
+        <h3><span class="tag same">Claude</span>通过 Tailscale API</h3>
+        <ul class="tight">
+          <li>写好 ACL：云端会话只能访问你指定的设备，你自己设备的权限不变</li>
+          <li>给新设备打 <code>tag:server</code>，关闭它的密钥过期</li>
+          <li>每个新会话自动生成一次性、10 分钟有效、带 tag 的密钥加入网络，环境里不存长期密钥</li>
+          <li>按设备名生成 SSH 别名</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>一次性配置</h2>
+    <ol class="steps">
+      <li>
+        <h3>生成 Tailscale API 令牌</h3>
+        <div class="step-body">
+          <div class="where">Tailscale 后台 → Settings → Keys → Generate access token</div>
+          <p>有效期建议选短一些（比如 30 天），到期再换。这个令牌有你 Tailscale 网络的完整管理权限。</p>
+        </div>
+      </li>
+      <li>
+        <h3>配置 Claude 云端环境</h3>
+        <div class="step-body">
+          <div class="where">claude.ai/code → 会话标题栏的环境菜单 → Edit</div>
+          <p><b>Setup script</b>：加入下面这一行。它固定到仓库里的一个具体提交，以后仓库改动不会自动影响你的环境。</p>
+          <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/4b9928c0234d28018b5127d32ce5af2bd55fccae/setup.sh | bash</pre><button class="copy" type="button">复制</button></div>
+          <p><b>Network secrets</b>：添加一条，Host 填 <code>api.tailscale.com</code>，用 <code>Authorization: Bearer</code>，值填上一步的令牌。也可以直接在会话里跟 Claude 说“帮我保存 Tailscale API 令牌”，它会弹出安全表单。令牌由网络代理注入请求，Claude 和脚本都看不到它的值。</p>
+        </div>
+      </li>
+      <li>
+        <h3>新开一个会话，让 Claude 完成剩下的设置</h3>
+        <div class="step-body">
+          <div class="where">任意新的云端会话（初始化脚本只在新容器里运行）</div>
+          <div class="say">
+            <div><span class="who">你</span>按 aayjq/claude-tailscale 的 acl.hujson 帮我配置 Tailscale，把 my-server 设为 tag:server</div>
+            <div><span class="who">Claude</span>读取现有 ACL → 校验新规则 → 给你看改动、等你确认 → 提交 → 给 my-server 打 tag</div>
+          </div>
+          <p>第一次运行 <code>ts-up</code>、第一次修改 ACL 时，Claude 的自动权限检查可能会拦一下，回复确认即可。</p>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>日常使用</h2>
+    <div class="say">
+      <div><span class="who">你</span>连一下 my-server，看看磁盘和内存还剩多少</div>
+      <div><span class="who">Claude</span>运行 <code>ts-up</code> → <code>ssh my-server 'df -h; free -h'</code> → 汇报结果</div>
+    </div>
+    <div class="say">
+      <div><span class="who">你</span>我在新服务器上装好 Tailscale 了，叫 web-2</div>
+      <div><span class="who">Claude</span>通过 API 给 web-2 打上 <code>tag:server</code>、关闭密钥过期 → 重新运行 <code>ts-up</code> → 可以连了</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>安全须知</h2>
+    <div class="note"><b>API 令牌是整个方案里权限最大的东西。</b> 它保存在你的云端环境里，该环境的每个会话都能用它调用 Tailscale API。有效期选短一些，不用了就在环境设置里删掉，并在 Tailscale 后台作废。</div>
+    <ul class="tight">
+      <li>云端会话只带 <code>tag:claude</code>，按 ACL 只能访问 <code>tag:server</code> 设备，碰不到你的个人电脑。</li>
+      <li>每个会话的登录密钥都是一次性的，10 分钟后失效；会话结束后设备自动从网络里删除。</li>
+      <li>Claude 修改 ACL 前会先给你看改动并等你确认。</li>
+      <li>不要把服务器密码发在聊天里或写进脚本。用了 Tailscale SSH 就不需要密码了。</li>
+      <li>脚本只从 <code>pkgs.tailscale.com</code> 下载 Tailscale 官方的最新稳定版。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>不想用 API 令牌？</h2>
+    <ul class="tight">
+      <li>在 Tailscale 后台自己生成一个 Reusable + Ephemeral、带 <code>tag:claude</code> 的授权密钥，放进环境变量 <code>TAILSCALE_AUTHKEY</code>；ACL 和设备 tag 也在后台自己改。</li>
+      <li>什么都不配：每个新会话会给出一个登录链接，点一下批准即可。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>常见问题</h2>
+    <dl class="faq">
+      <div><dt>ts-up 输出了一个登录链接</dt><dd>API 令牌没配好或已过期，也没有 <code>TAILSCALE_AUTHKEY</code>。打开链接批准，再运行一次 <code>ts-up</code>。</dd></div>
+      <div><dt>SSH 时提示 “Tailscale SSH requires an additional check”</dt><dd>ACL 里对应的 SSH 规则还是 <code>check</code>，让 Claude 改成 <code>accept</code>。</dd></div>
+      <div><dt>连不上某台设备</dt><dd>它可能还没有 <code>tag:server</code>，或者登录时没加 <code>--ssh</code>。让 Claude 查一下。</dd></div>
+      <div><dt>Windows 设备能连吗</dt><dd>Tailscale SSH 服务端主要支持 Linux（macOS 只有开源版 tailscaled 支持）。Windows 需要另外开 OpenSSH Server。</dd></div>
+    </dl>
+  </section>
+
+  <section>
+    <h2>源码</h2>
+    <details>
+      <summary>setup.sh（上面那一行下载的就是它）</summary>
+      <div class="code tall"><pre># === Claude cloud session -&gt; your Tailscale devices (generic, no account-specific values) ===
+# Login, first match wins:
+#   1. Tailscale API token saved as a network secret for api.tailscale.com (recommended):
+#      ts-up mints a one-time, 10-minute, ephemeral key tagged $TS_TAG (default tag:claude).
+#   2. env var TAILSCALE_AUTHKEY (reusable + ephemeral auth key of YOUR tailnet).
+#   3. a login URL for the user to approve.
+if ! command -v tailscaled &gt;/dev/null; then
+  V=$(curl -fsSL https://pkgs.tailscale.com/stable/ | grep -o 'tailscale_[0-9.]*_amd64.tgz' | head -1)
+  curl -fsSL "https://pkgs.tailscale.com/stable/$V" | tar xz -C /tmp &amp;&amp; cp /tmp/tailscale_*_amd64/tailscale* /usr/local/bin/ || true
+fi
+command -v ssh &gt;/dev/null || apt-get install -y -qq openssh-client || true
+cat &gt; /usr/local/bin/ts-up &lt;&lt;'EOF'
+#!/bin/bash
+# Join this container to your tailnet (userspace mode) and write SSH aliases. Safe to re-run.
+L=/var/lib/tailscale; mkdir -p $L /var/run/tailscale /root/.ssh/config.d
+H="${TS_HOSTNAME:-claude-cloud}"; T="${TS_TAG:-tag:claude}"
+mint() {  # one-time tagged key from the Tailscale API; the proxy adds the saved token
+  curl -fsS -X POST https://api.tailscale.com/api/v2/tailnet/-/keys -H 'Content-Type: application/json' \
+    -d "{\"capabilities\":{\"devices\":{\"create\":{\"reusable\":false,\"ephemeral\":true,\"preauthorized\":true,\"tags\":[\"$T\"]}}},\"expirySeconds\":600,\"description\":\"ts-up\"}" \
+    2&gt;/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["key"])' 2&gt;/dev/null
+}
+start() {
+  pkill -x tailscaled; sleep 1; echo "$HTTPS_PROXY" &gt; $L/proxy
+  setsid nohup tailscaled --tun=userspace-networking --state=$L/tailscaled.state &gt;&gt;$L/tailscaled.log 2&gt;&amp;1 &lt;/dev/null &amp;
+  sleep 3
+}
+online() {  # self is Running and not marked offline (ephemeral nodes get deleted while idle)
+  for i in 1 2 3 4 5; do S=$(tailscale status --peers=false 2&gt;/dev/null) &amp;&amp; ! grep -q offline &lt;&lt;&lt;"$S" &amp;&amp; return 0; sleep 2; done
+  return 1
+}
+if ! pgrep -x tailscaled &gt;/dev/null || [ "$(cat $L/proxy 2&gt;/dev/null)" != "$HTTPS_PROXY" ]; then start; fi
+if ! online; then
+  K=$(mint); [ -n "$K" ] &amp;&amp; echo "Using a one-time $T key from the Tailscale API" || K="$TAILSCALE_AUTHKEY"
+  if [ -n "$K" ]; then
+    tailscale logout &gt;/dev/null 2&gt;&amp;1; pkill -x tailscaled; rm -f $L/tailscaled.state; start
+    tailscale up --hostname="$H" --auth-key="$K" --timeout=30s
+  fi
+fi
+if ! online; then
+  tailscale up --hostname="$H" --force-reauth --timeout=15s
+  echo "NEEDS LOGIN: send the URL above to the user; after they approve, run ts-up again."; exit 1
+fi
+sleep 2
+tailscale status --json | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+for p in (d.get("Peer") or {}).values():
+    n, ip = p["DNSName"].split(".")[0], p["TailscaleIPs"][0]
+    if n: print(f"Host {n}\n  HostName {ip}\n  ProxyCommand tailscale nc %h %p\n")
+' &gt; /root/.ssh/config.d/tailscale
+tailscale status
+EOF
+chmod +x /usr/local/bin/ts-up
+mkdir -p /root/.ssh/config.d &amp;&amp; chmod 700 /root/.ssh
+cat &gt; /root/.ssh/config &lt;&lt;'EOF'
+Include config.d/*
+Host 100.* *.ts.net
+  ProxyCommand tailscale nc %h %p
+Host *
+  StrictHostKeyChecking accept-new
+  ConnectTimeout 30
+EOF
+chmod 600 /root/.ssh/config
+mkdir -p /root/.claude
+cat &gt; /root/.claude/CLAUDE.md &lt;&lt;'EOF'
+# Remote devices via Tailscale
+- The user set up this environment so Claude can reach their own Tailscale devices.
+  Run `ts-up` when a task needs one (joins the tailnet in userspace mode via DERP relays).
+- Then `ssh &lt;device-name&gt; '&lt;cmd&gt;'` (aliases are generated from `tailscale status`); scp/rsync work too.
+  `ssh &lt;user&gt;@100.x.y.z` also works. Plain outbound TCP does not work here; always go through Tailscale.
+- If `ts-up` prints a login URL, give it to the user, wait for approval, then run `ts-up` again.
+- If ssh fails after the session was idle or resumed, run `ts-up` again first.
+## Managing the tailnet (only if a Tailscale API token is saved for api.tailscale.com)
+- The user's model: on a new device they only install Tailscale and run `tailscale up --ssh`; Claude does the rest.
+- New device: find it with `curl -s https://api.tailscale.com/api/v2/tailnet/-/devices`, then
+  `POST /api/v2/device/&lt;id&gt;/tags {"tags":["tag:server"]}` and `POST /api/v2/device/&lt;id&gt;/key {"keyExpiryDisabled":true}`,
+  then run `ts-up` again to refresh SSH aliases. Sessions (tag:claude) can only reach tag:server devices.
+- ACL changes: GET /api/v2/tailnet/-/acl (note the ETag), POST .../acl/validate, show the user the change and get
+  their OK, then POST .../acl with If-Match. Never weaken access for the user's own devices.
+EOF</pre><button class="copy" type="button">复制</button></div>
+    </details>
+    <details>
+      <summary>acl.hujson（Claude 写入的 ACL 模板）</summary>
+      <div class="code tall"><pre>{
+  // tag:claude = Claude Code cloud sessions; tag:server = devices Claude may manage
+  "tagOwners": {
+    "tag:claude": ["autogroup:admin"],
+    "tag:server": ["autogroup:admin"]
+  },
+  "grants": [
+    // your own devices: unchanged, full access to everything
+    {"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+    // servers can still talk to each other
+    {"src": ["tag:server"], "dst": ["tag:server"], "ip": ["*"]},
+    // Claude cloud sessions: only tagged servers
+    {"src": ["tag:claude"], "dst": ["tag:server"], "ip": ["*"]}
+  ],
+  "ssh": [
+    {"src": ["autogroup:member"], "dst": ["autogroup:self"], "users": ["autogroup:nonroot", "root"], "action": "accept"},
+    {"src": ["autogroup:member"], "dst": ["tag:server"], "users": ["autogroup:nonroot", "root"], "action": "accept"},
+    {"src": ["tag:claude"], "dst": ["tag:server"], "users": ["autogroup:nonroot", "root"], "action": "accept"}
+  ]
+}</pre><button class="copy" type="button">复制</button></div>
+    </details>
+  </section>
+
+  <footer>源码：<a href="https://github.com/aayjq/claude-tailscale">github.com/aayjq/claude-tailscale</a>，MIT 许可证。已在 Claude Code 云端会话中实测：API 生成带 tag 的密钥、自动加入网络、按设备名 SSH 都正常。Tailscale 是 Tailscale Inc. 的产品，本项目与其无官方关联。</footer>
+</div>
+
+<script>
+document.querySelectorAll('.copy').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var pre = btn.parentElement.querySelector('pre');
+    var text = pre.innerText;
+    var label = btn.textContent;
+    function done(msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = label; }, 1600); }
+    function fallback() {
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      done('已选中，按 Ctrl+C');
+    }
+    try {
+      navigator.clipboard.writeText(text).then(function () { done('已复制'); }, fallback);
+    } catch (e) { fallback(); }
+  });
+});
+</script>
+</body>
+</html>

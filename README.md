@@ -94,4 +94,6 @@ Claude 会先读取现有 ACL，校验新规则，给你看改动并等你确认
 
 ---
 
+图文版安装手册：[`docs/index.html`](docs/index.html)（可用 GitHub Pages 发布）。本项目使用 [MIT 许可证](LICENSE)。
+
 Tailscale 是 Tailscale Inc. 的产品，本项目与其无官方关联。
