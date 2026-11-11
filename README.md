@@ -67,10 +67,10 @@ tailscale up --ssh --advertise-tags=tag:server
 
 在 claude.ai/code 会话标题栏的环境菜单 → Edit：
 
-- **Setup script**：加入下面这一行（固定到某个版本号，这样仓库以后改动不会自动影响你的环境）：
+- **Setup script**：加入下面这一行。它固定到一个具体提交，仓库以后的改动不会自动影响你的环境；想升级时，换成新的提交号即可：
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/v1.0.0/setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/617fe151de43649e5d32a69dfe967e9e32c023c1/setup.sh | bash
   ```
 
   也可以把 [`setup.sh`](setup.sh) 的全部内容直接粘贴进去，这样就不依赖这个仓库。
