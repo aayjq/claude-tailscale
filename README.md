@@ -41,7 +41,7 @@ Tailscale 后台 → Settings → Keys → **Generate access token**。
 - **Setup script**：加入下面这一行（固定到具体提交，仓库以后的改动不会自动影响你；想升级时换成新的提交号）：
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/7325fd04ff967d0f3d2f30febb320c0633d90819/setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/374f171e47b2d652453213d9fadea835455f9778/setup.sh | bash
   ```
 
   也可以把 [`setup.sh`](setup.sh) 的全部内容直接粘贴进去，这样就不依赖这个仓库。
@@ -86,6 +86,7 @@ Claude 通过 [`extras/qoder-task`](extras/qoder-task) 给 Qoder 下任务。这
 - 把 Qoder 限定在一个工作目录里，并要求它按固定格式汇报改了什么、怎么测的
 - 记录每个任务的日志（`/var/log/qoder-tasks/`）
 - 支持后台运行长任务（`-b`），以及接着上次的对话继续（`-c`）
+- 支持并行：Qoder 在后台干活时，Claude 不干等，继续准备验证、做独立检查或安排下一个任务；为防止互相干扰，同一目录同时只能有一个任务，全部最多同时 2 个（脚本强制）
 - 用 `qoder-task changes <任务号>` 列出工作目录以外被改动的文件
 
 你只需要在服务器上装好 Qoder CLI 并登录一次（`qoderclicn login`），`qoder-task` 由 Claude 自动安装。
