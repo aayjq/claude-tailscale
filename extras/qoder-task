@@ -9,6 +9,7 @@
 #   qoder-task log ID              full log
 #   qoder-task changes ID          files changed since the task started, outside its directory
 #   qoder-task list                recent tasks
+# Limits: one running task per directory; at most QODER_TASK_MAX (default 2) running tasks at once.
 set -u
 LOGDIR="${QODER_TASK_LOGDIR:-/var/log/qoder-tasks}"
 QODER="${QODER_BIN:-$(command -v qoderclicn || command -v qodercli || echo /root/.local/bin/qoderclicn)}"
@@ -19,7 +20,8 @@ state() {  # running | exit=N | unknown
   local id=$1
   if [ -f "$LOGDIR/$id.exit" ]; then echo "exit=$(cat "$LOGDIR/$id.exit")"
   elif [ -f "$LOGDIR/$id.pid" ] && kill -0 "$(cat "$LOGDIR/$id.pid")" 2>/dev/null; then echo running
-  elif [ ! -f "$LOGDIR/$id.pid" ]; then echo running  # just launched, pid not written yet
+  elif [ ! -f "$LOGDIR/$id.pid" ] && [ -n "$(find "$LOGDIR/$id.meta" -newermt '-60 seconds' 2>/dev/null)" ]; then
+    echo running  # just launched, pid not written yet
   else echo died; fi
 }
 need_id() { [ -n "${1:-}" ] && [ -f "$LOGDIR/$1.meta" ] || die "unknown task id '${1:-}' (see: qoder-task list)"; }
@@ -58,7 +60,7 @@ while getopts "d:n:a:m:cbh" o; do
   case $o in
     d) dir=$OPTARG ;; n) name=$OPTARG ;; a) extra="$extra $OPTARG" ;;
     m) args="$args --model $OPTARG" ;; c) args="$args --continue" ;; b) bg=1 ;;
-    *) sed -n '2,15p' "$0"; exit 2 ;;
+    *) sed -n '2,16p' "$0"; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
@@ -68,6 +70,16 @@ mkdir -p "$dir" && dir=$(cd "$dir" && pwd) || die "cannot use directory $dir"
 task="$*"; [ -n "$task" ] || task=$(cat)
 [ -n "$task" ] || die "empty task"
 name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9_.-' '-')
+
+# Parallel-safety: one task per directory, and at most QODER_TASK_MAX (default 2) at once (small servers).
+busy=0
+for m in "$LOGDIR"/*.meta; do
+  [ -f "$m" ] || continue; o=$(basename "$m" .meta)
+  [ "$(state "$o")" = running ] || continue
+  [ "$(sed -n 's/^dir=//p' "$m")" = "$dir" ] && die "task $o is still running in $dir; wait for it or use another directory"
+  busy=$((busy + 1))
+done
+[ $busy -lt "${QODER_TASK_MAX:-2}" ] || die "$busy tasks already running (limit ${QODER_TASK_MAX:-2}); wait for one to finish"
 id="$(date +%Y%m%d-%H%M%S)-$name"
 
 allowed="$dir/ 目录下的文件"; [ -n "$extra" ] && allowed="$allowed，以及：$extra"
