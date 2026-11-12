@@ -172,7 +172,7 @@ tailscale up --ssh</pre><button class="copy" type="button">复制</button></div>
         <div class="step-body">
           <div class="where">claude.ai/code → 会话标题栏的环境菜单 → Edit</div>
           <p><b>Setup script</b>：加入下面这一行。它固定到仓库里的一个具体提交，以后仓库改动不会自动影响你的环境。</p>
-          <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/23c02db587809f6d9fa65bd9a9fbfa0a0682cfbf/setup.sh | bash</pre><button class="copy" type="button">复制</button></div>
+          <div class="code"><pre>curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/7325fd04ff967d0f3d2f30febb320c0633d90819/setup.sh | bash</pre><button class="copy" type="button">复制</button></div>
           <p><b>Network secrets</b>：添加一条，Host 填 <code>api.tailscale.com</code>，用 <code>Authorization: Bearer</code>，值填上一步的令牌。也可以直接在会话里跟 Claude 说“帮我保存 Tailscale API 令牌”，它会弹出安全表单。令牌由网络代理注入请求，Claude 和脚本都看不到它的值。</p>
         </div>
       </li>
@@ -199,6 +199,26 @@ tailscale up --ssh</pre><button class="copy" type="button">复制</button></div>
     <div class="say">
       <div><span class="who">你</span>我在新服务器上装好 Tailscale 了，叫 web-2</div>
       <div><span class="who">Claude</span>通过 API 给 web-2 打上 <code>tag:server</code>、关闭密钥过期 → 重新运行 <code>ts-up</code> → 可以连了</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>可选：Claude 指挥，服务器上的 Qoder 干活</h2>
+    <p>如果服务器上装了 Qoder CLI（国内版 <code>qoderclicn</code> 或国际版 <code>qodercli</code>），Claude 会把写代码、部署、调试这类体力活交给服务器上的 Qoder，自己负责拆解需求和独立验证。执行在服务器本机进行，更快，也用的是 Qoder 账号的额度。</p>
+    <div class="tbl"><table>
+      <thead><tr><th>任务</th><th>谁来做</th></tr></thead>
+      <tbody>
+        <tr><td>理解需求、拆解步骤</td><td>Claude</td></tr>
+        <tr><td>查状态、看日志等简单命令</td><td>Claude 直接 ssh</td></tr>
+        <tr><td>写代码、部署、调试</td><td>服务器上的 Qoder</td></tr>
+        <tr><td>检查结果、检查有没有改到范围外的文件</td><td>Claude 独立验证</td></tr>
+        <tr><td>删除数据、改防火墙、重启等有风险的操作</td><td>Claude 先问你，再亲自执行</td></tr>
+      </tbody>
+    </table></div>
+    <p>Claude 通过仓库里的 <code>extras/qoder-task</code> 下任务：它把 Qoder 限定在一个工作目录里、要求固定格式汇报、记录日志、支持后台长任务，还能列出工作目录以外被改动的文件。你只需在服务器上装好 Qoder CLI 并登录一次，<code>qoder-task</code> 由 Claude 自动安装。</p>
+    <div class="say">
+      <div><span class="who">你</span>在服务器上用 Python 写个返回当前时间的网页服务，跑在 8080 端口</div>
+      <div><span class="who">Claude</span>检查 Python 和端口 → 交给 Qoder 写代码、建 systemd 服务、自测 → 用 curl 和 <code>qoder-task changes</code> 独立验证</div>
     </div>
   </section>
 
@@ -315,6 +335,16 @@ cat &gt; /root/.claude/CLAUDE.md &lt;&lt;'EOF'
   then run `ts-up` again to refresh SSH aliases. Sessions (tag:claude) can only reach tag:server devices.
 - ACL changes: GET /api/v2/tailnet/-/acl (note the ETag), POST .../acl/validate, show the user the change and get
   their OK, then POST .../acl with If-Match. Never weaken access for the user's own devices.
+## Delegating hands-on work to Qoder on a server (`qoder-task`)
+- If a server has Qoder CLI (`qoderclicn` or `qodercli`): you plan and verify, Qoder does the hands-on work there.
+  Do quick checks yourself with plain ssh; give coding/deploy/debug subtasks to Qoder with clear acceptance tests:
+  `ssh &lt;dev&gt; 'qoder-task -d /srv/&lt;app&gt; -n &lt;name&gt; "&lt;task&gt;"'` (scoped to that dir; `-a &lt;path&gt;` widens it).
+- May take over ~5 min: add `-b`, then `qoder-task wait &lt;id&gt;`. `-c` continues Qoder's last session in that dir.
+- After each task verify it yourself: service status, curl, and `qoder-task changes &lt;id&gt;` (edits outside the dir).
+- Never delegate risky operations (deleting data, firewall, SSH/users, reboot, unrelated services):
+  ask the user first, then do them yourself with plain ssh.
+- If `qoder-task` is missing on the server, install it there:
+  `curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/f31f02a7cbb020e9b9c5efc2e9dd2009edba3a10/extras/qoder-task -o /usr/local/bin/qoder-task &amp;&amp; chmod 755 /usr/local/bin/qoder-task`
 EOF</pre><button class="copy" type="button">复制</button></div>
     </details>
     <details>

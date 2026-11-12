@@ -41,7 +41,7 @@ Tailscale 后台 → Settings → Keys → **Generate access token**。
 - **Setup script**：加入下面这一行（固定到具体提交，仓库以后的改动不会自动影响你；想升级时换成新的提交号）：
 
   ```bash
-  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/23c02db587809f6d9fa65bd9a9fbfa0a0682cfbf/setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/7325fd04ff967d0f3d2f30febb320c0633d90819/setup.sh | bash
   ```
 
   也可以把 [`setup.sh`](setup.sh) 的全部内容直接粘贴进去，这样就不依赖这个仓库。
@@ -66,6 +66,33 @@ Claude 会先读取现有 ACL，校验新规则，给你看改动并等你确认
 > Claude：通过 API 给 web-2 打上 `tag:server`、关闭密钥过期 → 重新运行 `ts-up` → 可以连了
 
 第一次运行 `ts-up`、第一次修改 ACL 时，Claude 的自动权限检查可能会拦一下，回复确认即可。
+
+## 可选：Claude 指挥，服务器上的 Qoder 干活
+
+如果服务器上装了 [Qoder CLI](https://qoder.com.cn)（国内版 `qoderclicn` 或国际版 `qodercli`），Claude 会这样分工：
+
+| 任务 | 谁来做 |
+|---|---|
+| 理解需求、拆解步骤 | Claude |
+| 查状态、看日志等简单命令 | Claude 直接 `ssh` |
+| 写代码、部署、调试 | 交给服务器上的 Qoder |
+| 检查结果、检查有没有改到范围外的文件 | Claude 独立验证 |
+| 删除数据、改防火墙、重启等有风险的操作 | Claude 先问你，再亲自执行 |
+
+好处是：执行在服务器本机进行，不用每条命令都经过中继；写代码这类体力活用的是 Qoder 账号的额度。
+
+Claude 通过 [`extras/qoder-task`](extras/qoder-task) 给 Qoder 下任务。这个脚本会：
+
+- 把 Qoder 限定在一个工作目录里，并要求它按固定格式汇报改了什么、怎么测的
+- 记录每个任务的日志（`/var/log/qoder-tasks/`）
+- 支持后台运行长任务（`-b`），以及接着上次的对话继续（`-c`）
+- 用 `qoder-task changes <任务号>` 列出工作目录以外被改动的文件
+
+你只需要在服务器上装好 Qoder CLI 并登录一次（`qoderclicn login`），`qoder-task` 由 Claude 自动安装。
+
+> 你：在服务器上用 Python 写个返回当前时间的网页服务，跑在 8080 端口
+>
+> Claude：检查 Python 和端口 → `qoder-task -d /srv/timeweb -n timeweb "…"` → Qoder 写代码、建 systemd 服务、自测 → Claude 用 curl 和 `qoder-task changes` 独立验证
 
 ## 不想用 API 令牌？
 
