@@ -81,10 +81,12 @@ cat > /root/.claude/CLAUDE.md <<'EOF'
 - If a server has Qoder CLI (`qoderclicn` or `qodercli`): you plan and verify, Qoder does the hands-on work there.
   Do quick checks yourself with plain ssh; give coding/deploy/debug subtasks to Qoder with clear acceptance tests:
   `ssh <dev> 'qoder-task -d /srv/<app> -n <name> "<task>"'` (scoped to that dir; `-a <path>` widens it).
-- May take over ~5 min: add `-b`, then `qoder-task wait <id>`. `-c` continues Qoder's last session in that dir.
+- Work in parallel: start Qoder with `-b`, run `qoder-task wait <id>` as a background shell command (you are notified
+  when it ends), and meanwhile keep working: prepare verification, do independent checks, plan the next step, or start
+  another Qoder task in a different dir. Limits (enforced): one task per dir, 2 at once. `-c` continues Qoder's last session.
 - After each task verify it yourself: service status, curl, and `qoder-task changes <id>` (edits outside the dir).
 - Never delegate risky operations (deleting data, firewall, SSH/users, reboot, unrelated services):
   ask the user first, then do them yourself with plain ssh.
 - If `qoder-task` is missing on the server, install it there:
-  `curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/f31f02a7cbb020e9b9c5efc2e9dd2009edba3a10/extras/qoder-task -o /usr/local/bin/qoder-task && chmod 755 /usr/local/bin/qoder-task`
+  `curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/91e22135512162e03e55c5db2e2943ff59650878/extras/qoder-task -o /usr/local/bin/qoder-task && chmod 755 /usr/local/bin/qoder-task`
 EOF
