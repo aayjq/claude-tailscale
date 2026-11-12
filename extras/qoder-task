@@ -1,0 +1,92 @@
+#!/bin/bash
+# qoder-task: run a scoped Qoder CLI task on this server, non-interactively, with logs.
+# Meant to be driven over SSH by an orchestrating agent (e.g. Claude in a cloud session):
+# the agent plans and verifies, Qoder does the hands-on work inside one directory.
+#
+#   qoder-task [-d DIR] [-n NAME] [-a PATH]... [-m MODEL] [-c] [-b] "task" (or task on stdin)
+#   qoder-task wait ID [SECONDS]   wait for a background task (default 540s), then show its report
+#   qoder-task status ID           running / exit code, plus the last lines of the log
+#   qoder-task log ID              full log
+#   qoder-task changes ID          files changed since the task started, outside its directory
+#   qoder-task list                recent tasks
+set -u
+LOGDIR="${QODER_TASK_LOGDIR:-/var/log/qoder-tasks}"
+QODER="${QODER_BIN:-$(command -v qoderclicn || command -v qodercli || echo /root/.local/bin/qoderclicn)}"
+mkdir -p "$LOGDIR"
+
+die() { echo "qoder-task: $*" >&2; exit 2; }
+state() {  # running | exit=N | unknown
+  local id=$1
+  if [ -f "$LOGDIR/$id.exit" ]; then echo "exit=$(cat "$LOGDIR/$id.exit")"
+  elif [ -f "$LOGDIR/$id.pid" ] && kill -0 "$(cat "$LOGDIR/$id.pid")" 2>/dev/null; then echo running
+  elif [ ! -f "$LOGDIR/$id.pid" ]; then echo running  # just launched, pid not written yet
+  else echo died; fi
+}
+need_id() { [ -n "${1:-}" ] && [ -f "$LOGDIR/$1.meta" ] || die "unknown task id '${1:-}' (see: qoder-task list)"; }
+
+case "${1:-}" in
+  list)
+    ls -1t "$LOGDIR"/*.meta 2>/dev/null | head -15 | while read -r m; do
+      id=$(basename "$m" .meta); printf '%-34s %-9s %s\n' "$id" "$(state "$id")" "$(sed -n 's/^dir=//p' "$m")"
+    done; exit 0 ;;
+  status)
+    need_id "${2:-}"; echo "state: $(state "$2")"; tail -n 40 "$LOGDIR/$2.log"; exit 0 ;;
+  log)
+    need_id "${2:-}"; cat "$LOGDIR/$2.log"; exit 0 ;;
+  wait)
+    need_id "${2:-}"; end=$(( $(date +%s) + ${3:-540} ))
+    while [ "$(state "$2")" = running ] && [ "$(date +%s)" -lt "$end" ]; do sleep 5; done
+    echo "state: $(state "$2")"; tail -n 60 "$LOGDIR/$2.log"; exit 0 ;;
+  changes)
+    need_id "${2:-}"; dir=$(sed -n 's/^dir=//p' "$LOGDIR/$2.meta")
+    find /etc /srv /opt /usr/local /var/www /root /home -xdev -type f -newer "$LOGDIR/$2.meta" 2>/dev/null \
+      | grep -v -e "^$dir/" -e "^$LOGDIR/" -e '^/root/\.qoder' -e '^/root/\.cache/' -e '^/root/\.bash_history$' \
+             -e '^/root/\.config/\.locale_cfg$' -e '^/root/\.ssh/known_hosts' || echo "(none)"
+    exit 0 ;;
+  _exec)  # internal: run one task whose files are already prepared
+    id=$2; dir=$(sed -n 's/^dir=//p' "$LOGDIR/$id.meta"); args=$(sed -n 's/^args=//p' "$LOGDIR/$id.meta")
+    echo $$ > "$LOGDIR/$id.pid"
+    cd "$dir" || { echo 1 > "$LOGDIR/$id.exit"; exit 1; }
+    # shellcheck disable=SC2086
+    "$QODER" --permission-mode auto $args -p "$(cat "$LOGDIR/$id.prompt")" >> "$LOGDIR/$id.log" 2>&1
+    rc=$?; echo "$rc" > "$LOGDIR/$id.exit"; echo "--- qoder exit=$rc at $(date '+%F %T')" >> "$LOGDIR/$id.log"
+    exit $rc ;;
+esac
+
+dir=""; name="task"; extra=""; args=""; bg=0
+while getopts "d:n:a:m:cbh" o; do
+  case $o in
+    d) dir=$OPTARG ;; n) name=$OPTARG ;; a) extra="$extra $OPTARG" ;;
+    m) args="$args --model $OPTARG" ;; c) args="$args --continue" ;; b) bg=1 ;;
+    *) sed -n '2,15p' "$0"; exit 2 ;;
+  esac
+done
+shift $((OPTIND - 1))
+[ -x "$QODER" ] || die "Qoder CLI not found (set QODER_BIN)"
+[ -n "$dir" ] || dir="/srv/$name"
+mkdir -p "$dir" && dir=$(cd "$dir" && pwd) || die "cannot use directory $dir"
+task="$*"; [ -n "$task" ] || task=$(cat)
+[ -n "$task" ] || die "empty task"
+name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9_.-' '-')
+id="$(date +%Y%m%d-%H%M%S)-$name"
+
+allowed="$dir/ 目录下的文件"; [ -n "$extra" ] && allowed="$allowed，以及：$extra"
+cat > "$LOGDIR/$id.prompt" <<EOF
+【工作规则，必须遵守】
+- 工作目录：$dir。只允许创建或修改 $allowed。
+- 禁止：删除或修改上述范围以外的文件；安装或卸载系统软件包（任务明确要求的除外）；修改防火墙、SSH、用户和密码；重启或关机；停止、重启或修改与本任务无关的服务。
+- 如果必须越界才能完成，停下来说明原因和需要的操作，不要自行越界。
+- 完成后用中文汇报：1) 创建或修改的文件清单；2) 执行过的关键命令；3) 测试方法和结果；4) 未完成或有风险的地方。
+
+【任务】
+$task
+EOF
+printf 'dir=%s\nargs=%s\nstarted=%s\n' "$dir" "$args" "$(date '+%F %T')" > "$LOGDIR/$id.meta"
+: > "$LOGDIR/$id.log"
+echo "task: $id  dir: $dir"
+if [ $bg = 1 ]; then
+  setsid nohup "$0" _exec "$id" >/dev/null 2>&1 </dev/null &
+  echo "running in background. check: qoder-task wait $id   (or: status / log / changes $id)"
+else
+  "$0" _exec "$id"; rc=$?; cat "$LOGDIR/$id.log"; exit $rc
+fi
