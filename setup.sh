@@ -77,4 +77,14 @@ cat > /root/.claude/CLAUDE.md <<'EOF'
   then run `ts-up` again to refresh SSH aliases. Sessions (tag:claude) can only reach tag:server devices.
 - ACL changes: GET /api/v2/tailnet/-/acl (note the ETag), POST .../acl/validate, show the user the change and get
   their OK, then POST .../acl with If-Match. Never weaken access for the user's own devices.
+## Delegating hands-on work to Qoder on a server (`qoder-task`)
+- If a server has Qoder CLI (`qoderclicn` or `qodercli`): you plan and verify, Qoder does the hands-on work there.
+  Do quick checks yourself with plain ssh; give coding/deploy/debug subtasks to Qoder with clear acceptance tests:
+  `ssh <dev> 'qoder-task -d /srv/<app> -n <name> "<task>"'` (scoped to that dir; `-a <path>` widens it).
+- May take over ~5 min: add `-b`, then `qoder-task wait <id>`. `-c` continues Qoder's last session in that dir.
+- After each task verify it yourself: service status, curl, and `qoder-task changes <id>` (edits outside the dir).
+- Never delegate risky operations (deleting data, firewall, SSH/users, reboot, unrelated services):
+  ask the user first, then do them yourself with plain ssh.
+- If `qoder-task` is missing on the server, install it there:
+  `curl -fsSL https://raw.githubusercontent.com/aayjq/claude-tailscale/f31f02a7cbb020e9b9c5efc2e9dd2009edba3a10/extras/qoder-task -o /usr/local/bin/qoder-task && chmod 755 /usr/local/bin/qoder-task`
 EOF
