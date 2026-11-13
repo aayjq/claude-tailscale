@@ -95,6 +95,22 @@ Claude 通过 [`extras/qoder-task`](extras/qoder-task) 给 Qoder 下任务。这
 >
 > Claude：检查 Python 和端口 → `qoder-task -d /srv/timeweb -n timeweb "…"` → Qoder 写代码、建 systemd 服务、自测 → Claude 用 curl 和 `qoder-task changes` 独立验证
 
+## 可选：让 Claude 操作远端设备上的外接设备（devctl，实验阶段）
+
+[`extras/devctl`](extras/devctl) 装在一台**实体**远端设备上（比如树莓派、旧电脑装 Ubuntu；云服务器是虚拟机，插不了外设），Claude 通过 SSH 调用它：
+
+| 外设 | 能做什么 |
+|---|---|
+| 全部 | `devctl list` 列出插着的磁盘、摄像头、手机、其他 USB 设备；`devctl events` 看插拔记录 |
+| U 盘 / 移动硬盘 | 只读浏览、把文件拷回 Claude；可写挂载必须加 `--approved` |
+| 摄像头 | `devctl cam snap` 拍照、`cam clip` 录几秒，传回后 Claude 能直接看图 |
+| 安卓手机（adb） | 型号、电量、截屏、导出文件；装 App、执行命令必须加 `--approved` |
+| 苹果手机 | 基本信息（libimobiledevice） |
+
+安全规则写在工具里：磁盘默认只读；会改动磁盘或手机的操作，不带 `--approved` 一律拒绝，Claude 必须先问你；每次操作和插拔都记录在 `/var/log/devctl/`。
+
+安装：在远端设备上运行一次 `devctl setup`（安装工具、开启插拔记录）。不插真实外设也能自检：`devctl fake disk-add test` 模拟一个 U 盘，`devctl cam snap fake` 用测试画面模拟摄像头。
+
 ## 不想用 API 令牌？
 
 也可以不保存 API 令牌，按以下任一方式：

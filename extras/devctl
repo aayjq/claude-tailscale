@@ -1,0 +1,200 @@
+#!/bin/bash
+# devctl: let a remote agent (e.g. Claude over SSH) see and safely operate peripherals plugged into this machine.
+#
+#   devctl list                          everything plugged in: disks, cameras, phones, other USB devices
+#   devctl events [N]                    last N plug/unplug events (needs: devctl setup)
+#   devctl log [N]                       last N actions done through devctl
+#   devctl disk ls DEV [SUBDIR]          list files (mounts read-only first if needed)
+#   devctl disk mount DEV                mount read-only, print the mount path (copy files from there)
+#   devctl disk umount DEV
+#   devctl disk mount-rw DEV --approved  writable mount: ONLY after the user explicitly said yes
+#   devctl cam snap [DEV|fake] [OUT]     take one photo (default: first /dev/video*), print the file path
+#   devctl cam clip [DEV|fake] SECS [OUT]  record a short video
+#   devctl phone info | screenshot [OUT] | pull PHONE_PATH [DIR]      Android over adb
+#   devctl phone install APK --approved | phone shell "CMD" --approved
+#   devctl iphone info                   iPhone/iPad basics (libimobiledevice)
+#   devctl setup                         install tools + plug/unplug event logging (run once)
+#   devctl fake disk-add NAME [MB] | fake disk-remove NAME   simulated USB stick, for testing
+# DEV can be sdb, /dev/sdb1, or a fake disk NAME. Safety: disks are read-only by default; anything that
+# changes a disk or a phone requires --approved. Every action is logged in /var/log/devctl/actions.log.
+set -u
+LOG=/var/log/devctl; OUT=/var/lib/devctl/out; FAKE=/var/lib/devctl/fake; MNT=/mnt/devctl
+mkdir -p "$LOG" "$OUT" "$FAKE" "$MNT" 2>/dev/null
+act()  { echo "$(date '+%F %T') $*" >> "$LOG/actions.log"; }
+die()  { echo "devctl: $*" >&2; exit 2; }
+need() { command -v "$1" >/dev/null || die "'$1' is not installed (run: devctl setup)"; }
+approved() { for a in "$@"; do [ "$a" = --approved ] && return 0; done
+  die "this would change the device. Ask the user first; only after they say yes, re-run with --approved"; }
+
+# ---------- disks ----------
+fake_loop() { losetup -j "$FAKE/$1.img" 2>/dev/null | head -1 | cut -d: -f1; }
+resolve_dev() {  # -> /dev/<partition or disk that has a filesystem>
+  local d=$1
+  [ -f "$FAKE/$d.img" ] && { d=$(fake_loop "$d"); [ -n "$d" ] || die "fake disk '$1' is not plugged in"; }
+  [ -b "$d" ] || d=/dev/${d#/dev/}
+  [ -b "$d" ] || die "no such disk: $1 (see: devctl list)"
+  local p  # udev may not have probed it yet (e.g. loop devices): fall back to asking blkid directly
+  for p in $(lsblk -nlo PATH "$d"); do
+    [ -n "$(lsblk -no FSTYPE "$p" | head -1)$(blkid -o value -s TYPE "$p" 2>/dev/null)" ] && { echo "$p"; return; }
+  done
+  die "no readable filesystem on $d"
+}
+mp_of()  { findmnt -no TARGET --source "$1" 2>/dev/null | head -1; }
+mount_ro() {
+  local dev; dev=$(resolve_dev "$1") || exit 2
+  local mp; mp=$(mp_of "$dev"); [ -n "$mp" ] && { echo "$mp"; return; }
+  mp="$MNT/$(basename "$dev")"; mkdir -p "$mp"
+  mount -o ro,noexec,nosuid,nodev "$dev" "$mp" || die "mount failed for $dev"
+  act "disk mount-ro $dev -> $mp"; echo "$mp"
+}
+list_disks() {
+  echo "== Disks (USB / removable / fake; the system disk is hidden)"
+  local root; root=$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" 2>/dev/null | head -1)
+  lsblk -J -b -o NAME,PATH,SIZE,TYPE,TRAN,RM,HOTPLUG,MODEL,LABEL,FSTYPE,MOUNTPOINT 2>/dev/null |
+  ROOT="$root" FAKE="$FAKE" python3 -c '
+import json, os, sys, subprocess
+root, fake, shown = os.environ["ROOT"], os.environ["FAKE"], 0
+def blkid(path, key):  # udev may not have probed it yet: ask blkid directly
+    r = subprocess.run(["blkid", "-o", "value", "-s", key, path], capture_output=True, text=True)
+    return r.stdout.strip()
+def human(n):
+    n = int(n or 0)
+    for u in ["B", "KB", "MB", "GB", "TB"]:
+        if n < 1024: return f"{n:.0f}{u}"
+        n /= 1024
+    return f"{n:.1f}PB"
+for d in json.load(sys.stdin)["blockdevices"]:
+    name, typ = d["name"], d["type"]
+    if name == root or typ not in ("disk", "loop"): continue
+    tag = ""
+    if typ == "loop":
+        try: back = open("/sys/block/%s/loop/backing_file" % name).read().strip()
+        except OSError: continue
+        if not back.startswith(fake + "/"): continue
+        tag = "FAKE " + os.path.basename(back)[:-4]
+    elif not (d.get("tran") == "usb" or d.get("rm") or d.get("hotplug")): continue
+    shown += 1
+    print(("  %s  %s  %s  %s" % (d["path"], human(d["size"]), tag or d.get("tran") or "", d.get("model") or "")).rstrip())
+    for p in (d.get("children") or [d]):
+        fs = p.get("fstype") or blkid(p["path"], "TYPE")
+        if fs:
+            label = p.get("label") or blkid(p["path"], "LABEL") or "-"
+            print("     %s  fs=%s  label=%s  %s  mounted=%s" % (p["path"], fs, label, human(p["size"]), p.get("mountpoint") or "no"))
+if not shown: print("  (none)")
+'
+}
+
+# ---------- listing ----------
+list_all() {
+  list_disks
+  echo "== Cameras"
+  local n=0
+  for v in /dev/video*; do [ -e "$v" ] || continue
+    printf '  %s  %s\n' "$v" "$(cat /sys/class/video4linux/"$(basename "$v")"/name 2>/dev/null)"; n=$((n+1)); done
+  [ $n -gt 0 ] || echo "  (none)"
+  command -v ffmpeg >/dev/null && echo "  (test source available: 'fake')"
+  echo "== Android phones"
+  local found
+  if command -v adb >/dev/null; then
+    found=$(adb devices -l 2>/dev/null | sed -n '2,$p' | grep .); [ -n "$found" ] && echo "$found" | sed 's/^/  /' || echo "  (none)"
+  else echo "  (adb not installed)"; fi
+  echo "== iPhones"
+  if command -v idevice_id >/dev/null; then
+    found=$(idevice_id -l 2>/dev/null | grep .); [ -n "$found" ] && echo "$found" | sed 's/^/  /' || echo "  (none)"
+  else echo "  (libimobiledevice not installed)"; fi
+  echo "== Other USB devices"
+  if command -v lsusb >/dev/null; then lsusb | grep -v "Linux Foundation" | sed 's/^/  /' | grep . || echo "  (none)"
+  else echo "  (usbutils not installed)"; fi
+}
+
+case "${1:-}" in
+  list) list_all ;;
+  events) tail -n "${2:-20}" "$LOG/events.log" 2>/dev/null || echo "(no events yet; run: devctl setup)" ;;
+  log) tail -n "${2:-20}" "$LOG/actions.log" 2>/dev/null || echo "(no actions yet)" ;;
+  _event)  # called by udev
+    echo "$(date '+%F %T') ${ACTION:-?} ${SUBSYSTEM:-?} ${DEVNAME:-${DEVPATH:-?}} ${ID_VENDOR:-} ${ID_MODEL:-} ${ID_FS_LABEL:-}" >> "$LOG/events.log" ;;
+  disk)
+    case "${2:-}" in
+      mount) [ -n "${3:-}" ] || die "usage: devctl disk mount DEV"; mount_ro "$3" ;;
+      ls) [ -n "${3:-}" ] || die "usage: devctl disk ls DEV [SUBDIR]"
+          mp=$(mount_ro "$3") || exit 2; dir="$mp/${4:-}"; [ -d "$dir" ] || die "no such folder: ${4:-}"
+          echo "== $dir"; find "$dir" -mindepth 1 -maxdepth 1 -printf '  %y %10s  %TY-%Tm-%Td %TH:%TM  %P\n' | sort -k5
+          act "disk ls $3 ${4:-}" ;;
+      umount) dev=$(resolve_dev "${3:-}") || exit 2; mp=$(mp_of "$dev"); [ -n "$mp" ] || { echo "not mounted"; exit 0; }
+          umount "$mp" && rmdir "$mp" 2>/dev/null; act "disk umount $dev"; echo "unmounted $dev" ;;
+      mount-rw) approved "$@"; mp=$(mount_ro "$3") || exit 2; mount -o remount,rw,noexec,nosuid,nodev "$mp" || die "remount failed"
+          act "disk mount-rw $3 -> $mp (APPROVED by user)"; echo "$mp (writable)" ;;
+      *) die "usage: devctl disk ls|mount|umount|mount-rw DEV" ;;
+    esac ;;
+  cam)
+    need ffmpeg; sub=${2:-}; src=${3:-}
+    [ -n "$src" ] || src=$(ls /dev/video* 2>/dev/null | head -1)
+    [ -n "$src" ] || die "no camera found (see: devctl list)"
+    if [ "$src" = fake ]; then in=(-f lavfi -i "testsrc2=size=640x360:rate=10"); else [ -e "$src" ] || die "no such camera: $src"; in=(-f v4l2 -i "$src"); fi
+    ts=$(date +%Y%m%d-%H%M%S)
+    case "$sub" in
+      snap) out=${4:-$OUT/snap-$ts.jpg}
+        ffmpeg -loglevel error -y "${in[@]}" -vf "select=gte(n\,5)" -frames:v 1 "$out" </dev/null || die "capture failed"
+        act "cam snap $src -> $out"; echo "$out" ;;
+      clip) secs=${4:-}; [[ "$secs" =~ ^[0-9]+$ ]] && [ "$secs" -le 60 ] || die "usage: devctl cam clip [DEV|fake] SECONDS(<=60) [OUT]"
+        out=${5:-$OUT/clip-$ts.mp4}
+        ffmpeg -loglevel error -y "${in[@]}" -t "$secs" -pix_fmt yuv420p "$out" </dev/null || die "recording failed"
+        act "cam clip $src ${secs}s -> $out"; echo "$out" ;;
+      *) die "usage: devctl cam snap|clip ..." ;;
+    esac ;;
+  phone)
+    need adb; [ "$(adb devices | sed -n '2,$p' | grep -c 'device$')" -gt 0 ] || die "no authorised Android phone (plug it in, enable USB debugging, tap 'Allow' on the phone)"
+    case "${2:-}" in
+      info) echo "model:   $(adb shell getprop ro.product.model | tr -d '\r')"
+            echo "android: $(adb shell getprop ro.build.version.release | tr -d '\r')"
+            echo "battery: $(adb shell dumpsys battery | awk '/level/ {print $2"%"; exit}')"; act "phone info" ;;
+      screenshot) out=${3:-$OUT/phone-$(date +%Y%m%d-%H%M%S).png}; adb exec-out screencap -p > "$out" || die "screenshot failed"
+            act "phone screenshot -> $out"; echo "$out" ;;
+      pull) [ -n "${3:-}" ] || die "usage: devctl phone pull PHONE_PATH [DIR]"; dir=${4:-$OUT}; adb pull "$3" "$dir" && act "phone pull $3 -> $dir" ;;
+      install) approved "$@"; adb install "$3" && act "phone install $3 (APPROVED by user)" ;;
+      shell) approved "$@"; adb shell "$3" && act "phone shell '$3' (APPROVED by user)" ;;
+      *) die "usage: devctl phone info|screenshot|pull|install|shell" ;;
+    esac ;;
+  iphone)
+    need ideviceinfo; [ -n "$(idevice_id -l 2>/dev/null)" ] || die "no iPhone found (plug it in and tap 'Trust This Computer' on the phone)"
+    echo "name:    $(ideviceinfo -k DeviceName)"; echo "model:   $(ideviceinfo -k ProductType)"; echo "iOS:     $(ideviceinfo -k ProductVersion)"
+    act "iphone info" ;;
+  setup)
+    apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq usbutils v4l-utils ffmpeg adb libimobiledevice-utils dosfstools >/dev/null \
+      || die "package install failed"
+    cat > /etc/udev/rules.d/99-devctl.rules <<'EOF'
+ACTION=="add|remove", SUBSYSTEM=="video4linux", RUN+="/usr/local/bin/devctl _event"
+ACTION=="add|remove|change", SUBSYSTEM=="block", RUN+="/usr/local/bin/devctl _event"
+ACTION=="add|remove", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", RUN+="/usr/local/bin/devctl _event"
+EOF
+    udevadm control --reload; act "setup"; echo "devctl ready: tools installed, plug/unplug events logged to $LOG/events.log" ;;
+  fake)
+    name=${3:-}; [[ "$name" =~ ^[a-z0-9_-]+$ ]] || die "usage: devctl fake disk-add|disk-remove NAME [MB]"
+    case "${2:-}" in
+      disk-add)
+        img="$FAKE/$name.img"; [ -n "$(fake_loop "$name")" ] && die "fake disk '$name' is already plugged in"
+        if [ ! -f "$img" ]; then
+          truncate -s "${4:-64}M" "$img"; need mkfs.vfat; mkfs.vfat -n "$(echo "$name" | tr a-z A-Z | cut -c1-11)" "$img" >/dev/null
+          tmp=$(mktemp -d); mount -o loop "$img" "$tmp"; mkdir -p "$tmp/photos" "$tmp/docs"
+          echo "Fake USB stick '$name' created by devctl for testing." > "$tmp/README.txt"
+          printf 'Quarterly report (sample)\nSales: 1,234\n' > "$tmp/docs/report.txt"
+          python3 -c '
+import zlib, struct, sys
+W, H = 200, 100
+rows = b"".join(b"\x00" + b"".join(bytes((40, 160, 90) if 20 < x < 80 and 20 < y < 80 else (250, 210, 60) if 120 < x < 180 and 20 < y < 80 else (245, 245, 245)) for x in range(W)) for y in range(H))
+ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+open(sys.argv[1], "wb").write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0)) + ch(b"IDAT", zlib.compress(rows)) + ch(b"IEND", b""))
+' "$tmp/photos/sample.png"
+          umount "$tmp"; rmdir "$tmp"
+        fi
+        dev=$(losetup --show -f "$img") || die "could not attach $img"
+        act "fake disk-add $name -> $dev"; echo "fake USB stick '$name' plugged in as $dev" ;;
+      disk-remove)
+        dev=$(fake_loop "$name"); [ -n "$dev" ] || die "fake disk '$name' is not plugged in"
+        mp=$(mp_of "$dev"); [ -n "$mp" ] && { umount "$mp"; rmdir "$mp" 2>/dev/null; }
+        losetup -d "$dev"; act "fake disk-remove $name ($dev)"; echo "fake USB stick '$name' unplugged" ;;
+      *) die "usage: devctl fake disk-add|disk-remove NAME [MB]" ;;
+    esac ;;
+  ""|-h|--help|help) sed -n '2,19p' "$0" ;;
+  *) die "unknown command '$1' (see: devctl help)" ;;
+esac
