@@ -111,6 +111,10 @@ Claude 通过 [`extras/qoder-task`](extras/qoder-task) 给 Qoder 下任务。这
 
 安装：在远端设备上运行一次 `devctl setup`（安装工具、开启插拔记录）。不插真实外设也能自检：`devctl fake disk-add test` 模拟一个 U 盘，`devctl cam snap fake` 用测试画面模拟摄像头。
 
+## 实验：双方都不知道对方 IP（relay）
+
+[`extras/relay`](extras/relay) 让 Claude 和远端设备都只连一个中转站，Claude 只能调用固定动作（调用 `devctl`），没有命令行，所以拿不到远端设备的 IP。目前只验证了功能和白名单，**还没有验证"资源端放在另一台机器上 IP 确实藏住"**，详见该目录的 README。
+
 ## 不想用 API 令牌？
 
 也可以不保存 API 令牌，按以下任一方式：

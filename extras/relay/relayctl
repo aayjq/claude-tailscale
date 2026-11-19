@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+# relayctl: Claude-side client for the relay. Goes out through the egress proxy with openssl
+# (which sends the SNI the proxy requires) and pins the relay's certificate.
+#   relayctl devices
+#   relayctl run ALIAS ACTION [ARG...]      returned files are saved into $RELAY_OUT
+# env: RELAY_HOST, RELAY_TOKEN_FILE, RELAY_CA, RELAY_OUT (default .)
+import base64, json, os, subprocess, sys
+
+host = os.environ["RELAY_HOST"]
+token = open(os.environ["RELAY_TOKEN_FILE"]).read().strip()
+ca, outdir = os.environ["RELAY_CA"], os.environ.get("RELAY_OUT", ".")
+proxy = os.environ["HTTPS_PROXY"].split("://", 1)[-1]
+
+def call(method, path, obj=None):
+    body = json.dumps(obj).encode() if obj is not None else b""
+    req = ("%s %s HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\n"
+           "Content-Length: %d\r\n\r\n" % (method, path, host, token, len(body))).encode() + body
+    p = subprocess.run(["openssl", "s_client", "-quiet", "-verify_quiet", "-verify_return_error", "-CAfile", ca,
+                        "-servername", host, "-proxy", proxy, "-connect", host + ":443"],
+                       input=req, capture_output=True, timeout=150)
+    head, _, rest = p.stdout.partition(b"\r\n\r\n")
+    if not head:
+        sys.exit("relay unreachable or certificate mismatch: " + p.stderr.decode(errors="replace")[-200:])
+    status = int(head.split(b" ", 2)[1])
+    return status, json.loads(rest or b"{}")
+
+if len(sys.argv) >= 2 and sys.argv[1] == "devices":
+    st, d = call("GET", "/devices")
+    if st != 200: sys.exit("error %d: %s" % (st, d))
+    for dev in d["devices"]:
+        print("%-12s %-8s actions: %s" % (dev["alias"], "online" if dev["online"] else "offline", ", ".join(dev["actions"])))
+elif len(sys.argv) >= 4 and sys.argv[1] == "run":
+    st, d = call("POST", "/devices/%s/run" % sys.argv[2], {"action": sys.argv[3], "args": sys.argv[4:]})
+    if st != 200: sys.exit("error %d: %s" % (st, d.get("error", d)))
+    print(d.get("output", ""))
+    for f in d.get("files") or []:
+        path = os.path.join(outdir, os.path.basename(f["name"]))
+        open(path, "wb").write(base64.b64decode(f["b64"]))
+        print("[saved file] " + path)
+    sys.exit(0 if d.get("ok") else 1)
+else:
+    sys.exit(__doc__ if __doc__ else "usage: relayctl devices | relayctl run ALIAS ACTION [ARG...]")
