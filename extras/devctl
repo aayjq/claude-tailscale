@@ -174,7 +174,8 @@ EOF
       disk-add)
         img="$FAKE/$name.img"; [ -n "$(fake_loop "$name")" ] && die "fake disk '$name' is already plugged in"
         if [ ! -f "$img" ]; then
-          truncate -s "${4:-64}M" "$img"; need mkfs.vfat; mkfs.vfat -n "$(echo "$name" | tr a-z A-Z | cut -c1-11)" "$img" >/dev/null
+          truncate -s "${4:-64}M" "$img"; label=$(echo "$name" | tr a-z A-Z | cut -c1-11)
+          if command -v mkfs.vfat >/dev/null; then mkfs.vfat -n "$label" "$img" >/dev/null; else mkfs.ext4 -q -L "$label" "$img"; fi
           tmp=$(mktemp -d); mount -o loop "$img" "$tmp"; mkdir -p "$tmp/photos" "$tmp/docs"
           echo "Fake USB stick '$name' created by devctl for testing." > "$tmp/README.txt"
           printf 'Quarterly report (sample)\nSales: 1,234\n' > "$tmp/docs/report.txt"
