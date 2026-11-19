@@ -1,16 +1,24 @@
 # Resource agent: connects OUT to the relay, waits for jobs, runs only whitelisted actions (via devctl).
 # No arbitrary commands. Never sends this machine's hostname or addresses; IPs in text output are masked.
 #   python3 agent.py RELAY_HOST ALIAS TOKEN_FILE RELAY_CERT
-import json, ssl, http.client, subprocess, base64, re, os, sys, time
+import json, subprocess, base64, re, os, sys, time
 
 HOST, ALIAS, TOKEN_FILE, CERT = sys.argv[1:5]
 TOKEN = open(TOKEN_FILE).read().strip()
-CTX = ssl.create_default_context(cafile=CERT)          # trust only the relay's own certificate
-DEVCTL = "/usr/local/bin/devctl"
+DEVCTL = os.environ.get("DEVCTL", "/usr/local/bin/devctl")
 SAFE_ARG = re.compile(r"[A-Za-z0-9_./-]{0,200}")
 IPV4 = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
 HEXCOLON = re.compile(r"(?<![0-9A-Za-z:])[0-9A-Fa-f]{0,4}(?::[0-9A-Fa-f]{0,4}){2,}(?![0-9A-Za-z:])")
 MAX_FILE = 8_000_000
+
+def proxy_for(host):
+    """HTTPS proxy to use for `host`, honouring NO_PROXY (exact names/addresses and .suffix entries)."""
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    for e in (os.environ.get("NO_PROXY") or os.environ.get("no_proxy") or "").split(","):
+        e = e.strip()
+        if e and (e == host or (e.startswith(".") and host.endswith(e))):
+            return None
+    return proxy.split("://", 1)[-1] if proxy else None
 
 def redact(text):
     # IPv4 always; colon-separated hex only when it is an IPv6 ("::" or 4+ colons) or a MAC address,
@@ -74,23 +82,22 @@ def do_job(job):
 PROXY = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or "").split("://", 1)[-1]
 
 def post(path, obj, timeout):
-    if PROXY:  # behind an egress proxy that wants SNI == host: openssl sends it even for an IP (Python does not)
-        body = json.dumps(obj).encode()
-        req = ("POST %s HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\n"
-               "Content-Length: %d\r\n\r\n" % (path, HOST, TOKEN, len(body))).encode() + body
-        p = subprocess.run(["openssl", "s_client", "-quiet", "-verify_quiet", "-verify_return_error", "-CAfile", CERT,
-                            "-servername", HOST, "-proxy", PROXY, "-connect", HOST + ":443"],
-                           input=req, capture_output=True, timeout=timeout)
-        head, _, rest = p.stdout.partition(b"\r\n\r\n")
-        if not head:
-            raise ConnectionError("relay unreachable")
-        return json.loads(rest or b"{}")
-    c = http.client.HTTPSConnection(HOST, 443, context=CTX, timeout=timeout)
-    try:
-        c.request("POST", path, json.dumps(obj), {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"})
-        return json.loads(c.getresponse().read() or b"{}")
-    finally:
-        c.close()
+    # Talk to the relay through `openssl s_client`: it pins the relay's own certificate, sends the SNI that
+    # an egress proxy may demand even for an IP address (Python's ssl module omits SNI for IPs), and goes
+    # through HTTPS_PROXY when this machine can only reach the internet that way.
+    body = json.dumps(obj).encode()
+    req = ("POST %s HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\n"
+           "Content-Length: %d\r\n\r\n" % (path, HOST, TOKEN, len(body))).encode() + body
+    cmd = ["openssl", "s_client", "-quiet", "-verify_quiet", "-verify_return_error", "-CAfile", CERT,
+           "-servername", HOST, "-connect", HOST + ":443"]
+    proxy = proxy_for(HOST)
+    if proxy:
+        cmd += ["-proxy", proxy]
+    p = subprocess.run(cmd, input=req, capture_output=True, timeout=timeout)
+    head, _, rest = p.stdout.partition(b"\r\n\r\n")
+    if not head.startswith(b"HTTP/"):
+        raise ConnectionError("no valid reply")
+    return json.loads(rest or b"{}")
 
 print("agent", ALIAS, "started", flush=True)
 while True:

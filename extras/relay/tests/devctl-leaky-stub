@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+# TEST ONLY. A stand-in for devctl that LEAKS on purpose: `list` prints this machine's own network
+# addresses, routes, hostname and proxy settings. Used to check that agent.py masks IP addresses
+# before anything reaches the controller. Point the agent at it with:  DEVCTL=/path/to/devctl-leaky-stub
+import os, subprocess, sys, tempfile, zlib, struct
+
+def sh(cmd):
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    return (r.stdout + r.stderr).strip()
+
+def png(path):
+    w, h = 160, 90
+    rows = b"".join(b"\x00" + b"".join(bytes((30, 120, 200) if x < w // 2 else (230, 90, 40)) for x in range(w)) for _ in range(h))
+    ch = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+    open(path, "wb").write(b"\x89PNG\r\n\x1a\n" + ch(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                           + ch(b"IDAT", zlib.compress(rows)) + ch(b"IEND", b""))
+
+a = sys.argv[1:]
+if a[:1] == ["list"]:
+    print("== Disks\n  /dev/sdz  64MB  usb  STUB-STICK")
+    print("== This machine (leaky on purpose)")
+    print("hostname:", sh("hostname"))
+    print("addresses:", sh("hostname -I"))
+    print(sh("ip -o addr 2>/dev/null | cut -c1-120"))
+    print(sh("ip route 2>/dev/null | head -5"))
+    print("proxy:", os.environ.get("HTTPS_PROXY", "-"))
+elif a[:1] == ["events"]:
+    print("2026-11-19 08:00:00 add block /dev/sdz STUB-STICK")
+elif a[:2] == ["disk", "mount"]:
+    d = "/tmp/stub-disk"; os.makedirs(d + "/photos", exist_ok=True); png(d + "/photos/sample.png"); print(d)
+elif a[:2] == ["disk", "ls"]:
+    print("== stub disk\n  d photos")
+elif a[:2] == ["cam", "snap"]:
+    p = os.path.join(tempfile.mkdtemp(), "snap.png"); png(p); print(p)
+else:
+    print("stub: unsupported:", a); sys.exit(2)
